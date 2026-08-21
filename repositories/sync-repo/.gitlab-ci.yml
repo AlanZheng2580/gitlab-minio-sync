@@ -1,0 +1,11 @@
+include:
+  - component: $CI_SERVER_FQDN/platform/ci-components/config-sync@1.0.0
+    inputs:
+      repositories: |
+        demo-configs/A-config|master
+        demo-configs/B-config|release
+        demo-configs/C-config|develop
+      minio_bucket: config-packages
+      minio_object: demo/configs.tar.gz
+
+stages: [deploy]
