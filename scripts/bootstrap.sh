@@ -25,7 +25,9 @@ done
 mode=$(api GET "/api/v4/projects/$SYNC_REPO_PROJECT_ID/resource_groups/config-sync" | jq -er .process_mode) || die "Resource group was not created"
 [ "$mode" = newest_first ] || die "Resource group process_mode is $mode, expected newest_first"
 
-webhook="$GITLAB_EXTERNAL_URL/api/v4/projects/$SYNC_REPO_PROJECT_ID/ref/main/trigger/pipeline?token=$TRIGGER_TOKEN"
+# Webhooks are delivered by the GitLab container. Use Docker DNS instead of
+# localhost, which would resolve to the container loopback (often ::1).
+webhook="$GITLAB_INTERNAL_URL/api/v4/projects/$SYNC_REPO_PROJECT_ID/ref/main/trigger/pipeline?token=$TRIGGER_TOKEN"
 cat <<EOF
 
 Bootstrap complete.
