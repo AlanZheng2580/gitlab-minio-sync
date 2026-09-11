@@ -133,13 +133,27 @@ sed -n 's/^TRIGGER_TOKEN=//p' .state/runtime.env
 http://gitlab:8929/api/v4/projects/<SYNC_REPO_PROJECT_ID>/ref/main/trigger/pipeline?token=<TRIGGER_TOKEN>
 ```
 
-接著到每個 config project 的 **Settings → Webhooks → Add new webhook**，貼上該 URL、只選 **Push events**，並設定 branch filter：
+建立 webhook 時必須遮罩 URL 中的 Trigger Token：
+
+1. 到 config project 的 **Settings → Webhooks → Add new webhook**。
+2. 在 **URL** 貼上包含真實 Trigger Token 的完整 URL。
+3. 選取 **Mask portions of URL**（部分版本顯示 **Add URL masking**）。
+4. 在 **Sensitive portion of URL** 只貼 Trigger Token 本身，不包含 `token=`。
+5. 在 **How it looks in the UI** 輸入 `trigger_token`。
+6. 確認 URL preview 顯示 `token={trigger_token}`，不再顯示真實 token。
+7. 只選 **Push events**、設定下表 branch filter，然後儲存。
+
+GitLab 執行 webhook 時會用真正 token 取代 placeholder；遮罩部分不會出現在 GitLab UI 或 logs，並會在 GitLab database 中加密保存。不要使用真實 token 作為顯示名稱，也不要將含真實 token 的完整 URL 留在 README、issue、截圖或聊天記錄中。
+
+三個 repository 分別設定：
 
 | Project | Branch filter | Webhook URL |
 |---|---|---|
 | `demo-configs/A-config` | `master` | bootstrap 輸出的 URL |
 | `demo-configs/B-config` | `release` | bootstrap 輸出的 URL |
 | `demo-configs/C-config` | `develop` | bootstrap 輸出的 URL |
+
+URL masking 降低 token 從 UI、logs 或 database 洩漏的風險，但實際 HTTP request 仍需攜帶 token。本 PoC 的流量只走隔離的 Docker network；production 必須改用可信 HTTPS，並定期 rotate token。
 
 Webhook 是由 GitLab container 送出，因此 URL 必須使用 Docker DNS `gitlab:8929`，不能使用 `localhost:8929`。在 container 中，`localhost` 可能解析成 `::1`，造成 `Failed to open TCP connection to ::1:8929`。若 GitLab 顯示 local network request 被阻擋，請以管理員進入 **Admin Area → Settings → Network → Outbound requests**，允許 webhooks and integrations 存取 local network，然後重新測試。Pipeline 內部同樣使用 Docker DNS `gitlab:8929` 與 `minio:9000`。本 PoC 刻意不自動建立 webhooks。
 
