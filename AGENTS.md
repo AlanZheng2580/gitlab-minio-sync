@@ -9,6 +9,17 @@ using a reusable GitLab CI/CD Component.
 Read `README.md` before changing the environment or workflow. It documents the
 architecture, credentials, manual webhook setup, demo, and known limitations.
 
+## Current scope
+
+- There is one `demo-sync/sync-repo` consumer pipeline.
+- All three configured webhooks trigger that same pipeline.
+- Every non-superseded run clones A-config/master, B-config/release, and
+  C-config/develop, then uploads one object at
+  `config-packages/demo/configs.tar.gz`.
+- There is one resource group named `config-sync`. Do not infer selectable
+  groups, group-specific archives, or dispatch variables unless the user
+  explicitly requests a new design.
+
 ## Important constraints
 
 - Keep all container image versions pinned and centralized in `.env.example`.
@@ -63,8 +74,25 @@ The full demo is expected to verify versions `1/1/1`, then `2/1/1`, then
 
 ## Current handoff state
 
-As of 2026-08-21, Compose validation, bootstrap, all three demos, MinIO archive
-verification, private repository cloning, `newest_first`, and superseded-job
-skip verification passed in the local integration environment. Existing
-containers and named volumes may still be running. Inspect with
-`docker compose ps` before restarting or recreating services.
+As of 2026-09-14, `develop`, `master`, and their remote-tracking branches point
+to the same baseline commit. The worktree was clean at handoff. The earlier
+multi-group experiment was fully removed and must not be treated as current
+project scope.
+
+Compose validation, bootstrap, all three demos, MinIO archive verification,
+private repository cloning, `newest_first`, and superseded-job skip verification
+passed in the local integration environment. The webhook endpoint uses Docker
+DNS (`http://gitlab:8929`), and webhook URL masking instructions are documented
+in `README.md`.
+
+Runtime state is not represented by Git alone. Existing containers, named
+volumes, manually configured webhooks, and ignored `.state/` credentials may
+still exist. Before making changes, inspect:
+
+```bash
+git status --short
+docker compose ps
+```
+
+Never print or commit the contents of `.env`, `.state/`, webhook URLs containing
+real tokens, or GitLab CI/CD secret variables.

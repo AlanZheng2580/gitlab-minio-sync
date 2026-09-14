@@ -79,7 +79,7 @@ GITLAB_ROOT_PASSWORD='剛設定的新密碼'
 
 若密碼包含 `$`、空白或 `#`，請保留單引號。重設 root 登入密碼不會撤銷 Group Deploy Token、Project Access Token、Pipeline Trigger Token、Runner authentication token 或 MinIO credentials；這些 credential 各自管理，只有被 revoke、刪除、到期或其所屬資源被移除時才會失效。
 
-Bootstrap 使用 `gitlab-rails runner` 產生一次性的 root API token，只用於建立 groups/projects/scoped tokens/Runner，絕不放入 pipeline。可在完成後於 GitLab UI 撤銷 `poc-bootstrap`；若還要重跑 bootstrap，先刪除 `.state/admin-token` 以建立新 token。
+Bootstrap 使用 `gitlab-rails runner` 產生只供 bootstrap 使用的 root API token，用於建立 groups/projects/scoped tokens/Runner，絕不放入 pipeline。Token 會保存在被 gitignore 的 `.state/admin-token`，直到被撤銷或到期；可在完成後於 GitLab UI 撤銷 `poc-bootstrap`。若還要重跑 bootstrap，先刪除 `.state/admin-token` 以建立新 token。
 
 ## Demo and Verify
 
