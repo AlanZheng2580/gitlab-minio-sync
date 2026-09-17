@@ -1,0 +1,27 @@
+include:
+  - project: 'Platform/template-pipeline'
+    ref: master
+    file: '/templates/publish-to-minio.yml'
+    
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - when: never
+
+variables:
+  REPO_CONFIG: build/repo-config.yaml
+  RESOURCE_GROUP_NAME: minio-sync-example-repo
+
+  TEST_MINIO_BUCKET: psp-builds
+  TEST_MINIO_PREFIX: builds-gitlab-test/minio-sync-example-repo
+  TEST_BRANCH: master 
+
+  STAGING_MINIO_BUCKET: psp-builds
+  STAGING_MINIO_PREFIX: builds-gitlab-staging/minio-sync-example-repo
+  STAGING_BRANCH: master
+
+  PROD_MINIO_BUCKET: psp-builds
+  PROD_MINIO_PREFIX: builds-gitlab-prod/minio-sync-example-repo
+  PROD_BRANCH: master  
