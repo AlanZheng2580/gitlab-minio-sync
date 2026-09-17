@@ -1,0 +1,180 @@
+# =============================================================================
+# Template: publish-to-minio.yml
+# =============================================================================
+stages:
+  - build
+  - publish_tst
+  - publish_stg
+  - publish_prd
+
+variables:
+  MIIO_REVS_TO_KEEP: "3"
+  MINIO_LATEST_FILE: LATEST
+  TEST_MINIO_ENDPOINT: "http://minio:9000"
+  STAGING_MINIO_ENDPOINT: "http://minio:9000"
+  PROD_MINIO_ENDPOINT: "http://minio:9000"
+# -----------------------------------------------------------------------------
+# Stage 1: BUILD
+# -----------------------------------------------------------------------------
+build_artifact:
+  stage: build
+  resource_group: ${RESOURCE_GROUP_NAME}
+  tags:
+    - central-fz1-test
+  timeout: 60m
+  script:
+    - |
+      #!/bin/bash
+      set -euo pipefail
+      
+      CONFIG_FILE="${REPO_CONFIG}"
+      TEMP_DIR="$(pwd)/_temp"
+      OUTPUT_DIR="$(pwd)/_output"
+
+      echo "============================================"
+      echo "[INFO] Pipeline ID: ${CI_PIPELINE_ID}"
+      echo "[INFO] Commit SHA: ${CI_COMMIT_SHA}"
+      echo "[INFO] Branch: ${CI_COMMIT_REF_NAME}"
+      echo "[INFO] Trigger source: ${CI_PIPELINE_SOURCE}"
+      echo "[INFO] Config file: ${CONFIG_FILE}"
+      echo "[INFO] Gitlab Token: XXXXX"
+      echo "============================================"
+
+      cat "${CONFIG_FILE}"
+      printf "\n"
+
+      rm -rf "${TEMP_DIR}" "${OUTPUT_DIR}"
+      mkdir -p "${TEMP_DIR}" "${OUTPUT_DIR}"
+
+      Repo_count=$(yq ".repos | length" "$CONFIG_FILE")
+      echo "[INFO] Total repos to clone: ${Repo_count}"
+
+      for i in $(seq 0 $(($Repo_count - 1))); do
+        Repo_name=$(yq eval ".repos[$i].name" "$CONFIG_FILE")
+        Repo_url=$(yq eval ".repos[$i].url" "$CONFIG_FILE")
+        Repo_branch=$(yq eval ".repos[$i].branch" "$CONFIG_FILE")
+
+        echo "[INFO] [$((i+1))/${Repo_count}] Cloning ${Repo_name} (${Repo_url}, branch: ${Repo_branch})"
+        git clone --branch "${Repo_branch}" --depth 1 \
+          "https://gitlab-ci-token:${GITLAB_TOKEN}@${Repo_url}" \
+            "${TEMP_DIR}/${Repo_name}" \
+          || { echo "[ERROR] Failed to clone ${Repo_name}"; exit 1; }
+      done
+
+      tar -zcf "${OUTPUT_DIR}/drop.tar.gz" -C "${TEMP_DIR}" .
+      echo "[INFO] Tar created: $(du -h "${OUTPUT_DIR}/drop.tar.gz" | cut -f1)"
+
+artifacts:
+  paths:
+    - _output/drop.tar.gz
+  expire_in: 1 day
+        
+# -----------------------------------------------------------------------------
+# 共用 Publish Template（hidden job，不會直接執行）
+# -----------------------------------------------------------------------------
+.publish_template:
+  resource_group: ${RESOURCE_GROUP_NAME}
+  timeout: 60m
+  needs:
+    - job: build_artifact
+      artifacts: true
+  script:
+    - |
+      #!/bin/bash
+      set -euo pipefail
+
+      echo "============================================"
+      echo "[INFO] Publishing to ${PUBLISH_ENV} environment"
+      echo "[INFO] Endpoint: ${MINIO_ENDPOINT}"
+      echo "[INFO] Bucket:   ${MINIO_BUCKET}"
+      echo "[INFO] Prefix:   ${MINIO_PREFIX}"
+      echo "[INFO] Username: ${MINIO_USERNAME}"
+      echo "[INFO] Password: XXXXX"
+      echo "[INFO] Revs to keep: ${MINIO_REVS_TO_KEEP}"
+      echo "============================================"
+
+      TAR_FILE="_output/drop.tar.gz"
+      mc_alias="build_$(date +%s)"
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf -- "$tmpdir" && mc alias remove "$mc_alias" 2>/dev/null || true' EXIT
+
+      mc alias --insecure set "${mc_alias}" "${MINIO_ENDPOINT}" "${MINIO_USERNAME}" "${MINIO_PASSWORD}"
+
+      commit="${CI_COMMIT_SHA}"
+      echo "[INFO] Uploading as ${commit}.tar.gz"
+      mc cp --insecure "${TAR_FILE}" "${mc_alias}/${MINIO_BUCKET}/${MINIO_PREFIX}/${commit}.tar.gz"
+
+      echo "${MINIO_PREFIX}/${commit}.tar.gz" > "${tmpdir}/LATEST"
+      mc cp --insecure "${tmpdir}/LATEST" "${mc_alias}/${MINIO_BUCKET}/${MINIO_PREFIX}/${MINIO_LATEST_FILE}"
+
+      echo "[INFO] Cleaning up old revisions..."
+      FILES_TO_DELETE=$(mc find --insecure "${mc_alias}/${MINIO_BUCKET}/${MINIO_PREFIX}/" --name "*.tar.gz" --json | jq -r '.lastModified + " " + .key' | sort | head -n -"${MINIO_REVS_TO_KEEP}" | awk '{print $2}')
+
+      if [[ -n "$FILES_TO_DELETE" ]]; then
+        echo "[INFO] Deleting old files, keeping latest ${MINIO_REVS_TO_KEEP}:"
+        for file in $FILES_TO_DELETE; do
+          echo"[INFO]   Deleting: ${file}"
+          mc rm --insecure "${file}"
+        done
+      else
+        echo "[INFO] No old files to delete."
+      fi
+
+      echo "[INFO] ${PUBLISH_ENV} publish complete."
+# -----------------------------------------------------------------------------
+# Stage 2: PUBLISH TO TEST
+# -----------------------------------------------------------------------------
+publish_tst:
+  extends: .publish_template
+  stage: publish_tst
+  tags:
+    - central-fz1-test
+  variables:
+    PUBLISH_ENV: "TEST"
+    MINIO_ENDPOINT: ${TEST_MINIO_ENDPOINT}
+    MINIO_BUCKET: ${TEST_MINIO_BUCKET}
+    MINIO_PREFIX: ${TEST_MINIO_PREFIX}
+    MINIO_USERNAME: ${_MINIOSYNC_CONF_MINIO_TST_USERNAME}
+    MINIO_PASSWORD: ${_MINIOSYNC_CONF_MINIO_TST_PASSWORD}
+  rules:
+    - if: '$TEST_MINIO_BUCKET != "" && $CI_COMMIT_REF_NAME == $TEST_BRANCH'
+      when: on_success
+    - when: never
+# -----------------------------------------------------------------------------
+# Stage 3: PUBLISH TO STAGING
+# -----------------------------------------------------------------------------
+publish_stg:
+  extends: .publish_template
+  stage: publish_stg
+  tags:
+    - ent-fz1-staging
+  variables:
+    PUBLISH_ENV: "STAGING"
+    MINIO_ENDPOINT: ${STAGING_MINIO_ENDPOINT}
+    MINIO_BUCKET: ${STAGING_MINIO_BUCKET}
+    MINIO_PREFIX: ${STAGING_MINIO_PREFIX}
+    MINIO_USERNAME: ${_MINIOSYNC_CONF_MINIO_STG_USERNAME}
+    MINIO_PASSWORD: ${_MINIOSYNC_CONF_MINIO_STG_PASSWORD}
+  rules:
+    - if: '$STAGING_MINIO_BUCKET != "" && $CI_COMMIT_REF_NAME == $STAGING_BRANCH'
+      when: on_success
+    - when: never
+# -----------------------------------------------------------------------------
+# Stage 4: PUBLISH TO PRODUCTION
+# -----------------------------------------------------------------------------
+publish_prd:
+  extends: .publish_template
+  stage: publish_prd
+  tags:
+    - ent-fz1-prod
+  variables:
+    PUBLISH_ENV: "PRODCUTION"
+    MINIO_ENDPOINT: ${PROD_MINIO_ENDPOINT}
+    MINIO_BUCKET: ${PROD_MINIO_BUCKET}
+    MINIO_PREFIX: ${PROD_MINIO_PREFIX}
+    MINIO_USERNAME: ${_MINIOSYNC_CONF_MINIO_PRD_USERNAME}
+    MINIO_PASSWORD: ${_MINIOSYNC_CONF_MINIO_PRD_PASSWORD}
+  rules:
+    - if: '$PROD_MINIO_BUCKET != "" && $CI_COMMIT_REF_NAME == $PROD_BRANCH'
+      when: on_success
+    - when: never
