@@ -1,5 +1,5 @@
 include:
-  - project: 'Platform/template-pipeline'
+  - project: 'EPS/template-pipeline'
     ref: master
     file: '/templates/publish-to-minio.yml'
     
