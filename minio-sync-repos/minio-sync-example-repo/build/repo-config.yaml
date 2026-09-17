@@ -1,0 +1,10 @@
+repos:
+- name: A-config
+  url: gitlab:8929/demo-configs/A-config
+  branch: master
+- name: B-config
+  url:  gitlab:8929/demo-configs/B-configg
+  branch: master
+- name: C-config
+  url:  gitlab:8929/demo-configs/C-config
+  branch: master
