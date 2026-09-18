@@ -1,6 +1,6 @@
 include:
   - project: 'EPS/template-pipeline'
-    ref: master
+    ref: main
     file: '/templates/publish-to-minio.yml'
     
 workflow:
