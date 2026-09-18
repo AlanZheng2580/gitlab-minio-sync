@@ -37,7 +37,7 @@ build_artifact:
       echo "[INFO] Branch: ${CI_COMMIT_REF_NAME}"
       echo "[INFO] Trigger source: ${CI_PIPELINE_SOURCE}"
       echo "[INFO] Config file: ${CONFIG_FILE}"
-      echo "[INFO] Gitlab Token: XXXXX"
+      echo "[INFO] Gitlab MINIO_SYNC_PAT: XXXXX"
       echo "============================================"
 
       cat "${CONFIG_FILE}"
@@ -56,7 +56,7 @@ build_artifact:
 
         echo "[INFO] [$((i+1))/${Repo_count}] Cloning ${Repo_name} (${Repo_url}, branch: ${Repo_branch})"
         git clone --branch "${Repo_branch}" --depth 1 \
-          "https://gitlab-ci-token:${GITLAB_TOKEN}@${Repo_url}" \
+          "https://gitlab-ci-token:${_MINIOSYNC_CONF_MINIO_SYNC_PAT}@${Repo_url}" \
             "${TEMP_DIR}/${Repo_name}" \
           || { echo "[ERROR] Failed to clone ${Repo_name}"; exit 1; }
       done
