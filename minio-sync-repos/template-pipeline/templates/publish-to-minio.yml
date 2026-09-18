@@ -8,19 +8,61 @@ stages:
   - publish_prd
 
 variables:
-  MIIO_REVS_TO_KEEP: "3"
+  MINIO_SYNC_IMAGE: "ubuntu:24.04"
+  MINIO_SYNC_RUNNER_TAG: "docker"
+  YQ_VERSION: "v4.53.3"
+  MC_RELEASE: "RELEASE.2025-04-16T18-13-26Z"
+  MINIO_REVS_TO_KEEP: "3"
   MINIO_LATEST_FILE: LATEST
   TEST_MINIO_ENDPOINT: "http://minio:9000"
   STAGING_MINIO_ENDPOINT: "http://minio:9000"
   PROD_MINIO_ENDPOINT: "http://minio:9000"
+
+.minio_sync_tools:
+  image: "$MINIO_SYNC_IMAGE"
+  tags:
+    - "$MINIO_SYNC_RUNNER_TAG"
+  cache:
+    key: "minio-sync-tools-${YQ_VERSION}-${MC_RELEASE}"
+    paths:
+      - .minio-sync-tools/
+    policy: pull-push
+  before_script:
+    - |
+      set -euo pipefail
+      apt-get update
+      apt-get install --yes --no-install-recommends ca-certificates curl git jq tar
+      rm -rf /var/lib/apt/lists/*
+      case "$(dpkg --print-architecture)" in
+        amd64) tool_arch=amd64 ;;
+        arm64) tool_arch=arm64 ;;
+        *) echo "[ERROR] Unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+      esac
+      tools_dir="${CI_PROJECT_DIR}/.minio-sync-tools"
+      mkdir -p "$tools_dir"
+      if [[ ! -x "$tools_dir/yq" ]]; then
+        curl --fail --silent --show-error --location \
+          "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${tool_arch}" \
+          --output "$tools_dir/yq"
+      fi
+      if [[ ! -x "$tools_dir/mc" ]]; then
+        curl --fail --silent --show-error --location \
+          "https://github.com/minio/mc/releases/download/${MC_RELEASE}/mc.linux-${tool_arch}.${MC_RELEASE}" \
+          --output "$tools_dir/mc"
+      fi
+      chmod 0755 "$tools_dir/yq" "$tools_dir/mc"
+      export PATH="$tools_dir:$PATH"
+      git --version
+      jq --version
+      yq --version
+      mc --version
 # -----------------------------------------------------------------------------
 # Stage 1: BUILD
 # -----------------------------------------------------------------------------
 build_artifact:
+  extends: .minio_sync_tools
   stage: build
   resource_group: ${RESOURCE_GROUP_NAME}
-  tags:
-    - central-fz1-test
   timeout: 60m
   script:
     - |
@@ -32,6 +74,12 @@ build_artifact:
       OUTPUT_DIR="$(pwd)/_output"
 
       echo "============================================"
+
+      required=(REPO_CONFIG RESOURCE_GROUP_NAME _MINIOSYNC_CONF_MINIO_SYNC_PAT)
+      for name in "${required[@]}"; do
+        [[ -n "${!name:-}" ]] || { echo "[ERROR] Required variable ${name} is missing" >&2; exit 1; }
+      done
+      [[ -f "$CONFIG_FILE" ]] || { echo "[ERROR] Config file not found: $CONFIG_FILE" >&2; exit 1; }
       echo "[INFO] Pipeline ID: ${CI_PIPELINE_ID}"
       echo "[INFO] Commit SHA: ${CI_COMMIT_SHA}"
       echo "[INFO] Branch: ${CI_COMMIT_REF_NAME}"
@@ -46,33 +94,47 @@ build_artifact:
       rm -rf "${TEMP_DIR}" "${OUTPUT_DIR}"
       mkdir -p "${TEMP_DIR}" "${OUTPUT_DIR}"
 
-      Repo_count=$(yq ".repos | length" "$CONFIG_FILE")
+      Repo_count=$(yq eval '.repos | length' "$CONFIG_FILE")
+      [[ "$Repo_count" =~ ^[1-9][0-9]*$ ]] || { echo "[ERROR] repos must contain at least one entry" >&2; exit 1; }
       echo "[INFO] Total repos to clone: ${Repo_count}"
 
-      for i in $(seq 0 $(($Repo_count - 1))); do
+      for ((i = 0; i < Repo_count; i++)); do
         Repo_name=$(yq eval ".repos[$i].name" "$CONFIG_FILE")
         Repo_url=$(yq eval ".repos[$i].url" "$CONFIG_FILE")
         Repo_branch=$(yq eval ".repos[$i].branch" "$CONFIG_FILE")
 
+        [[ "$Repo_name" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "[ERROR] Invalid repository name: $Repo_name" >&2; exit 1; }
+        [[ "$Repo_url" =~ ^https?://[^[:space:]]+$ ]] || { echo "[ERROR] Repository URL must use http:// or https://: $Repo_url" >&2; exit 1; }
+        [[ "$Repo_branch" != "null" && -n "$Repo_branch" ]] || { echo "[ERROR] Missing branch for $Repo_name" >&2; exit 1; }
+        [[ ! -e "${TEMP_DIR}/${Repo_name}" ]] || { echo "[ERROR] Duplicate repository name: $Repo_name" >&2; exit 1; }
+
         echo "[INFO] [$((i+1))/${Repo_count}] Cloning ${Repo_name} (${Repo_url}, branch: ${Repo_branch})"
-        git clone --branch "${Repo_branch}" --depth 1 \
-          "https://gitlab-ci-token:${_MINIOSYNC_CONF_MINIO_SYNC_PAT}@${Repo_url}" \
-            "${TEMP_DIR}/${Repo_name}" \
+        auth_header=$(printf 'minio-sync:%s' "${_MINIOSYNC_CONF_MINIO_SYNC_PAT}" | base64 | tr -d '\n')
+        export MINIO_SYNC_GIT_AUTH_HEADER="Authorization: Basic ${auth_header}"
+        git --config-env=http.extraHeader=MINIO_SYNC_GIT_AUTH_HEADER clone \
+          --branch "${Repo_branch}" --depth 1 \
+          "${Repo_url}" "${TEMP_DIR}/${Repo_name}" \
           || { echo "[ERROR] Failed to clone ${Repo_name}"; exit 1; }
+        unset auth_header MINIO_SYNC_GIT_AUTH_HEADER
+        rm -rf "${TEMP_DIR:?}/${Repo_name}/.git"
       done
 
       tar -zcf "${OUTPUT_DIR}/drop.tar.gz" -C "${TEMP_DIR}" .
+      if tar -tzf "${OUTPUT_DIR}/drop.tar.gz" | grep -Eq '(^|/)\.git(/|$)'; then
+        echo "[ERROR] Archive unexpectedly contains .git metadata" >&2
+        exit 1
+      fi
       echo "[INFO] Tar created: $(du -h "${OUTPUT_DIR}/drop.tar.gz" | cut -f1)"
-
-artifacts:
-  paths:
-    - _output/drop.tar.gz
-  expire_in: 1 day
+  artifacts:
+    paths:
+      - _output/drop.tar.gz
+    expire_in: 1 day
         
 # -----------------------------------------------------------------------------
 # 共用 Publish Template（hidden job，不會直接執行）
 # -----------------------------------------------------------------------------
 .publish_template:
+  extends: .minio_sync_tools
   resource_group: ${RESOURCE_GROUP_NAME}
   timeout: 60m
   needs:
@@ -93,28 +155,42 @@ artifacts:
       echo "[INFO] Revs to keep: ${MINIO_REVS_TO_KEEP}"
       echo "============================================"
 
+      required=(PUBLISH_ENV MINIO_ENDPOINT MINIO_BUCKET MINIO_PREFIX MINIO_USERNAME MINIO_PASSWORD MINIO_REVS_TO_KEEP MINIO_LATEST_FILE)
+      for name in "${required[@]}"; do
+        [[ -n "${!name:-}" ]] || { echo "[ERROR] Required variable ${name} is missing" >&2; exit 1; }
+      done
+      [[ "$MINIO_REVS_TO_KEEP" =~ ^[1-9][0-9]*$ ]] || { echo "[ERROR] MINIO_REVS_TO_KEEP must be a positive integer" >&2; exit 1; }
+      [[ "$MINIO_PREFIX" != /* && "$MINIO_PREFIX" != */ ]] || { echo "[ERROR] MINIO_PREFIX must not start or end with /" >&2; exit 1; }
+
       TAR_FILE="_output/drop.tar.gz"
+      [[ -f "$TAR_FILE" ]] || { echo "[ERROR] Artifact not found: $TAR_FILE" >&2; exit 1; }
       mc_alias="build_$(date +%s)"
       tmpdir="$(mktemp -d)"
       trap 'rm -rf -- "$tmpdir" && mc alias remove "$mc_alias" 2>/dev/null || true' EXIT
 
-      mc alias --insecure set "${mc_alias}" "${MINIO_ENDPOINT}" "${MINIO_USERNAME}" "${MINIO_PASSWORD}"
+      mc alias set "${mc_alias}" "${MINIO_ENDPOINT}" "${MINIO_USERNAME}" "${MINIO_PASSWORD}"
 
-      commit="${CI_COMMIT_SHA}"
-      echo "[INFO] Uploading as ${commit}.tar.gz"
-      mc cp --insecure "${TAR_FILE}" "${mc_alias}/${MINIO_BUCKET}/${MINIO_PREFIX}/${commit}.tar.gz"
+      revision="${CI_PIPELINE_ID}-${CI_COMMIT_SHORT_SHA}"
+      target="${mc_alias}/${MINIO_BUCKET}/${MINIO_PREFIX}"
+      echo "[INFO] Uploading as ${revision}.tar.gz"
+      mc cp "${TAR_FILE}" "${target}/${revision}.tar.gz"
 
-      echo "${MINIO_PREFIX}/${commit}.tar.gz" > "${tmpdir}/LATEST"
-      mc cp --insecure "${tmpdir}/LATEST" "${mc_alias}/${MINIO_BUCKET}/${MINIO_PREFIX}/${MINIO_LATEST_FILE}"
+      echo "${MINIO_PREFIX}/${revision}.tar.gz" > "${tmpdir}/LATEST"
+      mc cp "${tmpdir}/LATEST" "${target}/${MINIO_LATEST_FILE}"
 
       echo "[INFO] Cleaning up old revisions..."
-      FILES_TO_DELETE=$(mc find --insecure "${mc_alias}/${MINIO_BUCKET}/${MINIO_PREFIX}/" --name "*.tar.gz" --json | jq -r '.lastModified + " " + .key' | sort | head -n -"${MINIO_REVS_TO_KEEP}" | awk '{print $2}')
+      mapfile -t FILES_TO_DELETE < <(
+        mc ls --json "${target}/" \
+          | jq -r 'select(.type == "file" and (.key | endswith(".tar.gz"))) | [.lastModified, .key] | @tsv' \
+          | sort --reverse \
+          | awk -v keep="${MINIO_REVS_TO_KEEP}" 'NR > keep {print $2}'
+      )
 
-      if [[ -n "$FILES_TO_DELETE" ]]; then
+      if (( ${#FILES_TO_DELETE[@]} > 0 )); then
         echo "[INFO] Deleting old files, keeping latest ${MINIO_REVS_TO_KEEP}:"
-        for file in $FILES_TO_DELETE; do
-          echo"[INFO]   Deleting: ${file}"
-          mc rm --insecure "${file}"
+        for file in "${FILES_TO_DELETE[@]}"; do
+          echo "[INFO]   Deleting: ${file}"
+          mc rm "${target}/${file}"
         done
       else
         echo "[INFO] No old files to delete."
@@ -127,15 +203,13 @@ artifacts:
 publish_tst:
   extends: .publish_template
   stage: publish_tst
-  tags:
-    - central-fz1-test
   variables:
     PUBLISH_ENV: "TEST"
-    MINIO_ENDPOINT: ${TEST_MINIO_ENDPOINT}
-    MINIO_BUCKET: ${TEST_MINIO_BUCKET}
-    MINIO_PREFIX: ${TEST_MINIO_PREFIX}
-    MINIO_USERNAME: ${_MINIOSYNC_CONF_MINIO_TST_USERNAME}
-    MINIO_PASSWORD: ${_MINIOSYNC_CONF_MINIO_TST_PASSWORD}
+    MINIO_ENDPOINT: "$TEST_MINIO_ENDPOINT"
+    MINIO_BUCKET: "$TEST_MINIO_BUCKET"
+    MINIO_PREFIX: "$TEST_MINIO_PREFIX"
+    MINIO_USERNAME: "$_MINIOSYNC_CONF_MINIO_TST_USERNAME"
+    MINIO_PASSWORD: "$_MINIOSYNC_CONF_MINIO_TST_PASSWORD"
   rules:
     - if: '$TEST_MINIO_BUCKET != "" && $CI_COMMIT_REF_NAME == $TEST_BRANCH'
       when: on_success
@@ -146,15 +220,13 @@ publish_tst:
 publish_stg:
   extends: .publish_template
   stage: publish_stg
-  tags:
-    - ent-fz1-staging
   variables:
     PUBLISH_ENV: "STAGING"
-    MINIO_ENDPOINT: ${STAGING_MINIO_ENDPOINT}
-    MINIO_BUCKET: ${STAGING_MINIO_BUCKET}
-    MINIO_PREFIX: ${STAGING_MINIO_PREFIX}
-    MINIO_USERNAME: ${_MINIOSYNC_CONF_MINIO_STG_USERNAME}
-    MINIO_PASSWORD: ${_MINIOSYNC_CONF_MINIO_STG_PASSWORD}
+    MINIO_ENDPOINT: "$STAGING_MINIO_ENDPOINT"
+    MINIO_BUCKET: "$STAGING_MINIO_BUCKET"
+    MINIO_PREFIX: "$STAGING_MINIO_PREFIX"
+    MINIO_USERNAME: "$_MINIOSYNC_CONF_MINIO_STG_USERNAME"
+    MINIO_PASSWORD: "$_MINIOSYNC_CONF_MINIO_STG_PASSWORD"
   rules:
     - if: '$STAGING_MINIO_BUCKET != "" && $CI_COMMIT_REF_NAME == $STAGING_BRANCH'
       when: on_success
@@ -165,15 +237,13 @@ publish_stg:
 publish_prd:
   extends: .publish_template
   stage: publish_prd
-  tags:
-    - ent-fz1-prod
   variables:
-    PUBLISH_ENV: "PRODCUTION"
-    MINIO_ENDPOINT: ${PROD_MINIO_ENDPOINT}
-    MINIO_BUCKET: ${PROD_MINIO_BUCKET}
-    MINIO_PREFIX: ${PROD_MINIO_PREFIX}
-    MINIO_USERNAME: ${_MINIOSYNC_CONF_MINIO_PRD_USERNAME}
-    MINIO_PASSWORD: ${_MINIOSYNC_CONF_MINIO_PRD_PASSWORD}
+    PUBLISH_ENV: "PRODUCTION"
+    MINIO_ENDPOINT: "$PROD_MINIO_ENDPOINT"
+    MINIO_BUCKET: "$PROD_MINIO_BUCKET"
+    MINIO_PREFIX: "$PROD_MINIO_PREFIX"
+    MINIO_USERNAME: "$_MINIOSYNC_CONF_MINIO_PRD_USERNAME"
+    MINIO_PASSWORD: "$_MINIOSYNC_CONF_MINIO_PRD_PASSWORD"
   rules:
     - if: '$PROD_MINIO_BUCKET != "" && $CI_COMMIT_REF_NAME == $PROD_BRANCH'
       when: on_success

@@ -1,10 +1,10 @@
 repos:
 - name: A-config
-  url: gitlab:8929/demo-configs/A-config
+  url: http://gitlab:8929/demo-configs/A-config.git
   branch: master
 - name: B-config
-  url:  gitlab:8929/demo-configs/B-configg
+  url: http://gitlab:8929/demo-configs/B-config.git
   branch: release
-- name: C-develop
-  url:  gitlab:8929/demo-configs/C-config
-  branch: master
+- name: C-config
+  url: http://gitlab:8929/demo-configs/C-config.git
+  branch: develop
