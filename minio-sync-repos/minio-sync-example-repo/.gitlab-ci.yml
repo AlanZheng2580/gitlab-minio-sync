@@ -16,12 +16,12 @@ variables:
 
   TEST_MINIO_BUCKET: config-packages
   TEST_MINIO_PREFIX: builds-gitlab-test/minio-sync-example-repo
-  TEST_BRANCH: master 
+  TEST_BRANCH: main 
 
   STAGING_MINIO_BUCKET: config-packages
   STAGING_MINIO_PREFIX: builds-gitlab-staging/minio-sync-example-repo
-  STAGING_BRANCH: master
+  STAGING_BRANCH: main
 
   PROD_MINIO_BUCKET: config-packages
   PROD_MINIO_PREFIX: builds-gitlab-prod/minio-sync-example-repo
-  PROD_BRANCH: master  
+  PROD_BRANCH: main  
