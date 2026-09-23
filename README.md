@@ -261,6 +261,10 @@ make verify
 
 Secret variables 由 bootstrap API 建立並設為 Masked；不 commit、不印到 job log。PoC main branch 未設 protected，因此 variables 不是 Protected；production 應保護 default branch 後將 variables 設為 Protected。
 
+`EPS/template-pipeline` 範例使用的七個 Group CI/CD Variables，包含
+Masked and hidden、Protected、Expand variable reference 與 Group/Project
+scope 的逐項建議，記錄於 [minio-sync-repos/README.md](minio-sync-repos/README.md#recommended-variable-settings)。
+
 ## Error Handling
 
 Component 會明確 fail：錯誤的 `namespace/project|branch` 格式、空清單、重複 repo basename、不存在的 project/branch、clone auth 問題、GitLab API 非 200/無資料、MinIO auth/連線/bucket/upload 問題。只有確認存在較新 trigger pipeline 才 `exit 0`。Archive 保留 repository basename，並在上傳前檢查不包含 `.git`。

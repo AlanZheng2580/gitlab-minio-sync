@@ -44,11 +44,62 @@ Define these variables on the `EPS` group:
 | `_MINIOSYNC_CONF_MINIO_PRD_USERNAME` | Production MinIO username |
 | `_MINIOSYNC_CONF_MINIO_PRD_PASSWORD` | Production MinIO password |
 
-Set PAT and password variables to **Masked** and disable variable expansion.
-If they are **Protected**, the pipeline branch must also be protected. Never
-commit their values. A personal access token with `read_repository` works for
-the PoC; a read-only Group Deploy Token is preferred for production because it
-is not tied to a person.
+### Recommended variable settings
+
+| Variables | Type | Visibility | Protect variable | Expand variable reference |
+|---|---|---|---|---|
+| `_MINIOSYNC_CONF_MINIO_SYNC_PAT` | Variable | Masked and hidden | Yes | No |
+| `*_MINIO_*_PASSWORD` | Variable | Masked and hidden | Yes | No |
+| `*_MINIO_*_USERNAME` | Variable | Visible (or Masked if required by policy) | Yes | No |
+
+Apply these settings as follows:
+
+- Use **Masked and hidden** for the Git credential and passwords. Masking
+  replaces an exact secret value in job logs with `[MASKED]`; hiding also
+  prevents the saved value from being revealed again in the GitLab UI.
+- Existing variables cannot be changed from Masked to Hidden. Delete and
+  recreate them with **Masked and hidden** if hiding is required. Copy the
+  value from its authoritative password manager first because GitLab cannot
+  reveal a hidden value after it is saved.
+- A masked value must meet GitLab's requirements, including being a single
+  line with no spaces and at least eight characters long.
+- Usernames are normally identifiers rather than secrets, so keeping them
+  Visible makes connection diagnostics easier. Select Masked instead if local
+  policy considers account names sensitive. The template intentionally never
+  prints tokens or passwords.
+- Enable **Protect variable** only after protecting the consumer branch at
+  **Settings > Repository > Protected branches**. In this example `main` is the
+  test, staging, and production branch, so it must be protected. A trigger or
+  manually started pipeline does not bypass this rule. If the ref is not
+  protected, protected variables are absent and the job fails its required
+  variable check.
+- Disable **Expand variable reference** for every credential. Secrets are
+  literal strings and do not need `$OTHER_VARIABLE` expansion; disabling it
+  also prevents a `$` in a password or token from being interpreted as a
+  reference. GitLab does not allow reference expansion for Masked or Masked
+  and hidden variables in this version.
+- Keep Environment scope as `*` for this example. The jobs do not currently
+  declare GitLab `environment:` names, so environment-scoped credentials would
+  require corresponding pipeline changes.
+
+`Masked`, `Hidden`, and `Protected` reduce accidental exposure but do not stop
+malicious CI code from sending a credential elsewhere. Review all template and
+consumer CI changes before running them, and do not enable debug tracing while
+handling secrets.
+
+Never commit credential values. A personal access token with only
+`read_repository` works for the PoC, but a read-only Group Deploy Token is
+preferred for production because it is not tied to a person. Use separate
+MinIO credentials for test, staging, and production outside this local PoC.
+
+Group variables are inherited by eligible projects below the group. Keep them
+at the `EPS` group only when all those projects are trusted and need the same
+credentials. If only `minio-sync-example-repo` needs them, project-level
+variables provide a smaller exposure scope.
+
+For the exact behavior and current restrictions, see GitLab's documentation
+for [CI/CD variables](https://docs.gitlab.com/ci/variables/) and
+[token security](https://docs.gitlab.com/security/tokens/).
 
 ## Pipeline behavior
 
