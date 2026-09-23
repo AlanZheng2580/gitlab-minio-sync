@@ -85,6 +85,7 @@ build_artifact:
       echo "[INFO] Branch: ${CI_COMMIT_REF_NAME}"
       echo "[INFO] Trigger source: ${CI_PIPELINE_SOURCE}"
       echo "[INFO] Config file: ${CONFIG_FILE}"
+      echo "[INFO] Resource group: ${RESOURCE_GROUP_NAME}"
       echo "[INFO] Gitlab MINIO_SYNC_PAT: XXXXX"
       echo "============================================"
 
@@ -153,6 +154,7 @@ build_artifact:
       echo "[INFO] Username: ${MINIO_USERNAME}"
       echo "[INFO] Password: XXXXX"
       echo "[INFO] Revs to keep: ${MINIO_REVS_TO_KEEP}"
+      echo "[INFO] Latest file: ${MINIO_LATEST_FILE}"
       echo "============================================"
 
       required=(PUBLISH_ENV MINIO_ENDPOINT MINIO_BUCKET MINIO_PREFIX MINIO_USERNAME MINIO_PASSWORD MINIO_REVS_TO_KEEP MINIO_LATEST_FILE)
