@@ -120,3 +120,17 @@ After updating both GitLab projects, run a new pipeline on `main`. Verify:
 If a job remains pending, compare its tag with `MINIO_SYNC_RUNNER_TAG`. If a
 protected variable is missing in the job, verify that `main` is protected and
 that the group variable environment scope includes this project.
+
+If the job fails during **Getting source from Git repository** with a URL such
+as `http://localhost:8929/...`, the failure happens before this template runs.
+The Runner's `/etc/gitlab-runner/config.toml` must contain the internal Docker
+network URL in its runner block:
+
+```toml
+url = "http://gitlab:8929"
+clone_url = "http://gitlab:8929"
+```
+
+Run `./scripts/register-runner.sh` from the PoC workspace to apply this setting
+idempotently. The public browser URL remains `http://localhost:8929`; only
+Runner and job containers use the `gitlab` Docker DNS hostname.

@@ -184,6 +184,7 @@ config repository push
 | `401` | Trigger Token 無效或已撤銷 |
 | `404` | `SYNC_REPO_PROJECT_ID` 或 URL path 錯誤 |
 | connection refused to `::1:8929` | URL 錯用了 `localhost`；改成 `http://gitlab:8929/...` |
+| Runner 在 `Getting source from Git repository` 連不到 `localhost:8929` | 執行 `./scripts/register-runner.sh`，使 Runner 的 `clone_url` 使用 `http://gitlab:8929`；瀏覽器入口仍維持 `http://localhost:8929` |
 | local network blocked | 在 Admin Area 允許 webhook outbound request 存取 local network |
 
 ### 2. Pipeline and job
