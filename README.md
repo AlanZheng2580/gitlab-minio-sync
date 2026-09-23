@@ -184,6 +184,7 @@ config repository push
 | `401` | Trigger Token 無效或已撤銷 |
 | `404` | `SYNC_REPO_PROJECT_ID` 或 URL path 錯誤 |
 | connection refused to `::1:8929` | URL 錯用了 `localhost`；改成 `http://gitlab:8929/...` |
+| Runner 在 `Getting source from Git repository` 連不到 `localhost:8929` | 執行 `./scripts/register-runner.sh`，使 Runner 的 `clone_url` 使用 `http://gitlab:8929`；瀏覽器入口仍維持 `http://localhost:8929` |
 | local network blocked | 在 Admin Area 允許 webhook outbound request 存取 local network |
 
 ### 2. Pipeline and job
@@ -259,6 +260,10 @@ make verify
 | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | MinIO 專用 user，只能 list bucket 與 get/put `config-packages/*` |
 
 Secret variables 由 bootstrap API 建立並設為 Masked；不 commit、不印到 job log。PoC main branch 未設 protected，因此 variables 不是 Protected；production 應保護 default branch 後將 variables 設為 Protected。
+
+`EPS/template-pipeline` 範例使用的七個 Group CI/CD Variables，包含
+Masked and hidden、Protected、Expand variable reference 與 Group/Project
+scope 的逐項建議，記錄於 [minio-sync-repos/README.md](minio-sync-repos/README.md#recommended-variable-settings)。
 
 ## Error Handling
 
