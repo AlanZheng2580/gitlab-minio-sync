@@ -109,6 +109,13 @@ The template creates four sequential jobs:
 build_artifact → publish_tst → publish_stg → publish_prd
 ```
 
+`build_artifact` is added only when the current branch matches at least one of
+`TEST_BRANCH`, `STAGING_BRANCH`, or `PROD_BRANCH` whose corresponding MinIO
+bucket is configured. Pipelines for unrelated branches therefore do not clone
+repositories or create an unused archive. If multiple environments use the
+same branch, the artifact is built once and reused by all matching publish
+jobs.
+
 `build_artifact` reads `build/repo-config.yaml`, clones every configured branch,
 removes `.git`, and creates `_output/drop.tar.gz`. Publish jobs upload the same
 artifact to environment-specific prefixes, update `LATEST`, and retain the

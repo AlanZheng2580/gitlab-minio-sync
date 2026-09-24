@@ -64,6 +64,14 @@ build_artifact:
   stage: build
   resource_group: ${RESOURCE_GROUP_NAME}
   timeout: 60m
+  rules:
+    - if: '$TEST_MINIO_BUCKET != "" && $CI_COMMIT_REF_NAME == $TEST_BRANCH'
+      when: on_success
+    - if: '$STAGING_MINIO_BUCKET != "" && $CI_COMMIT_REF_NAME == $STAGING_BRANCH'
+      when: on_success
+    - if: '$PROD_MINIO_BUCKET != "" && $CI_COMMIT_REF_NAME == $PROD_BRANCH'
+      when: on_success
+    - when: never
   script:
     - |
       #!/bin/bash
