@@ -52,7 +52,7 @@ config-sync:
       api_file=$(mktemp)
       code=$(curl --silent --show-error --output "$api_file" --write-out '%{http_code}' \
         --header "PRIVATE-TOKEN: $SYNC_API_TOKEN" \
-        --get --data-urlencode "ref=$CI_COMMIT_REF_NAME" --data-urlencode 'source=trigger' \
+        --get --data-urlencode "ref=$CI_COMMIT_REF_NAME" --data-urlencode "source=$CI_PIPELINE_SOURCE" \
         --data-urlencode 'order_by=id' --data-urlencode 'sort=desc' --data-urlencode 'per_page=1' \
         "$CONFIG_GITLAB_URL/api/v4/projects/$CI_PROJECT_ID/pipelines") || fail "GitLab latest-pipeline API request failed"
       [ "$code" = 200 ] || fail "GitLab latest-pipeline API returned HTTP $code"

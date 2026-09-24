@@ -110,6 +110,14 @@ stages: [deploy]
 
 Component inputs 還有 `output_name`（`configs.tar.gz`）、`resource_group`（`config-sync`）與 `batch_delay_seconds`（`5`）。敏感資料不是 inputs。
 
+若一般專案需要在 MR 階段只跑檢查、合併到 default branch 後才上傳
+MinIO，可參考
+[merge-only.gitlab-ci.yml](repositories/sync-repo/examples/merge-only.gitlab-ci.yml)。
+Consumer 以同名 `config-sync` job 覆寫 component 的 `rules`，不需要複製上傳
+實作。若要嚴格禁止直接 push 觸發上傳，還必須保護 default branch 並要求
+所有變更經由 MR 合併；詳細行為見
+[sync-repo README](repositories/sync-repo/README.md#merge-request-checks-and-upload-after-merge)。
+
 ## Manual Webhook Setup
 
 `make bootstrap` 最後會印出 `SYNC_REPO_PROJECT_ID`、`TRIGGER_TOKEN` 和完整 webhook URL。若之後需要重新取得這兩個值，優先從 GitLab UI 查詢：

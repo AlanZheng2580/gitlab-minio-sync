@@ -1,0 +1,41 @@
+include:
+  - component: $CI_SERVER_FQDN/platform/ci-components/config-sync@1.0.0
+    inputs:
+      repositories: |
+        demo-configs/A-config|master
+        demo-configs/B-config|release
+        demo-configs/C-config|develop
+      minio_bucket: config-packages
+      minio_object: demo/configs.tar.gz
+
+# Create pipelines only for merge requests and updates to the default branch.
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+
+stages:
+  - validate
+  - deploy
+
+# Replace these sample commands with lint, unit tests, schema checks, and other
+# checks that must pass before the merge request can be merged.
+validate-config:
+  image: alpine:3.21.3
+  stage: validate
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - echo "Validate merge request ${CI_MERGE_REQUEST_IID}"
+    - test -f .gitlab-ci.yml
+    - echo "Checks passed; MinIO upload is intentionally skipped in the MR pipeline."
+
+# This local definition is merged into the config-sync job supplied by the
+# component. Only its rules are overridden; clone, tar, debounce, and upload
+# behavior remains implemented by the component.
+config-sync:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: on_success
+    - when: never
